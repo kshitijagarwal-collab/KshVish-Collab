@@ -5,7 +5,7 @@ from typing import Optional, Protocol
 from uuid import UUID, uuid4
 
 from src.core.domain.document import Document, DocumentType
-from src.core.domain.kyc_case import CaseStatus, CaseType, KYCCase, RiskTier
+from src.core.domain.kyc_case import CaseStatus, CaseType, KYCCase
 
 
 class CaseAccessDenied(Exception):

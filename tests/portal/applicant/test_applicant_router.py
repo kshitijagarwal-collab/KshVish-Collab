@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.api.auth import jwt as jwt_module
 from src.api.auth.jwt import AuthSettings, create_access_token
-from src.core.domain.kyc_case import CaseStatus, CaseType
+from src.core.domain.kyc_case import CaseStatus
 from src.portal.applicant import router as router_module
 from src.portal.applicant.app import create_app
 from src.portal.applicant.service import InMemoryApplicantPortalService
