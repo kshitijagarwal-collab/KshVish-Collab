@@ -24,6 +24,7 @@ from .extraction import (
     extract_identity_fields,
     extract_pdf_text,
 )
+from .tesseract_ocr import extract_via_tesseract, is_available as tesseract_available
 from .schemas import (
     CreateDocumentRequest,
     DocumentResponse,
@@ -127,6 +128,21 @@ class UploadedDocumentResponse(BaseModel):
     document: DocumentResponse
     extracted: ExtractedFields
     validation: ValidationResult
+    extraction_source: str
+
+
+def _has_useful_fields(extracted: ExtractedDocument) -> bool:
+    populated = sum(
+        1
+        for v in (
+            extracted.full_name,
+            extracted.document_number,
+            extracted.date_of_birth,
+            extracted.expiry_date,
+        )
+        if v is not None
+    )
+    return populated >= 2
 
 
 def _validate_against_applicant(
@@ -193,12 +209,24 @@ async def upload_document_file(
         expiry_date=None,
         raw_text_length=0,
     )
+    extraction_source = "none"
     if is_pdf:
         try:
             text = extract_pdf_text(payload)
             extracted = extract_identity_fields(text)
+            if _has_useful_fields(extracted):
+                extraction_source = "pdf-text"
         except Exception:
             pass
+
+    if extraction_source == "none" and tesseract_available():
+        ocr_mime = file.content_type or (
+            "application/pdf" if is_pdf else "application/octet-stream"
+        )
+        ocr_result = extract_via_tesseract(payload, ocr_mime)
+        if ocr_result is not None:
+            extracted = ocr_result
+            extraction_source = "tesseract"
 
     doc = Document(
         case_id=case_id,
@@ -232,6 +260,7 @@ async def upload_document_file(
                 "file_name": doc.file_name,
                 "extracted": extracted.to_dict(),
                 "validation": validation.model_dump(),
+                "extraction_source": extraction_source,
             },
         )
     )
@@ -251,6 +280,7 @@ async def upload_document_file(
             ),
         ),
         validation=validation,
+        extraction_source=extraction_source,
     )
 
 
