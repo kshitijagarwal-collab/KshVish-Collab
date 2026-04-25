@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c \"branch=$(git -C \"$PWD\" rev-parse --abbrev-ref HEAD 2>/dev/null); if [ \"$branch\" = 'main' ] || [ \"$branch\" = 'master' ]; then ts=$(date +%Y%m%d-%H%M%S); new_branch=\\\"feature/claude-${ts}\\\"; git -C \"$PWD\" checkout -b \\\"$new_branch\\\"; echo \\\"[KYC] Auto-created branch: $new_branch\\\"; fi\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": []
+      }
+    ]
+  }
+}

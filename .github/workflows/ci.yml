@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check src/ tests/
+
+      - name: Type check
+        run: mypy src/
+
+      - name: Test
+        run: pytest tests/ -v --tb=short
+
+      - name: Check file size limit (600 lines)
+        run: |
+          violations=$(find src/ -name "*.py" -exec awk 'END{if(NR>600) print FILENAME": "NR" lines"}' {} \;)
+          if [ -n "$violations" ]; then
+            echo "Files exceeding 600-line limit:"
+            echo "$violations"
+            exit 1
+          fi
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install bandit
+        run: pip install bandit
+      - name: Security scan
+        run: bandit -r src/ -ll
