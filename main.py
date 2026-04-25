@@ -10,6 +10,7 @@ from src.api.rest import (
     workflow_router,
 )
 from src.portal.applicant.router import router as applicant_router
+from src.portal.applicant.ui import router as applicant_ui_router
 from src.portal.ops import (
     assignment_router,
     case_queue_router,
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(reporting_router, prefix="/api")
 
     app.include_router(applicant_router, prefix="/api")
+    app.include_router(applicant_ui_router)
 
     return app
 
