@@ -171,6 +171,7 @@
 
         <div id="extract-result" style="display: none;">
             <h2>Extracted from document</h2>
+            <p class="muted" id="extract-source"></p>
             <table class="extract-table">
                 <tr><td>Full name</td><td id="ex-name">—</td></tr>
                 <tr><td>Document number</td><td id="ex-doc-number">—</td></tr>
@@ -335,6 +336,12 @@
         }
         const result = await r.json();
         const ex = result.extracted, val = result.validation;
+        const sourceLabel = {
+            "tesseract": "Extracted via Tesseract OCR (local)",
+            "pdf-text": "Extracted from embedded PDF text",
+            "none": "No extraction available — try a clearer scan or a text-based PDF",
+        }[result.extraction_source] || "";
+        document.getElementById("extract-source").textContent = sourceLabel;
         document.getElementById("ex-name").textContent = ex.full_name || "—";
         document.getElementById("ex-doc-number").textContent = ex.document_number || "—";
         document.getElementById("ex-dob").textContent = ex.date_of_birth || "—";
