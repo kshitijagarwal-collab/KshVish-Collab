@@ -24,3 +24,11 @@ live credentials / Constraint: must swap stubs before any production deployment.
 Chose 25% / Over 10% or 50% / Why: FATF recommendation, adopted by EU 4AMLD, UK MLR 2017,
 SEBI / Constraint: some jurisdictions (e.g. US FinCEN) use 25% but may require lower at
 fund manager discretion — check fund's compliance policy.
+
+## DR-006: Epic 5 started ahead of Epic 3 & 4 completion (2026-04-25)
+Chose run Epic 5 in parallel / Over wait for Epic 3 (DB) and Epic 4 (Auth) / Why: explicit
+user override after initial "wait" directive; Epic 5 adapters are pure provider integrations
+that don't depend on persistence or auth — they expose Provider Protocols consumed by services
+that will be wired up once Epic 3/4 land / Constraint: no end-to-end screening flow can persist
+results until Epic 3 ORM + repositories ship; adapters must remain side-effect-free at
+import time so they don't break test runs without env credentials.
