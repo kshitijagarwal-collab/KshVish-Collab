@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>KYC Applicant Portal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 24px;
+            color: #1f2328;
+            background: #f6f8fa;
+        }
+        h1 { font-size: 24px; margin: 0 0 4px; }
+        h2 { font-size: 16px; margin: 24px 0 8px; }
+        .muted { color: #59636e; font-size: 13px; }
+        .card {
+            background: #fff;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        label { display: block; font-size: 13px; margin: 8px 0 4px; }
+        input, select {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #d0d7de;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        button {
+            background: #1f883d;
+            color: #fff;
+            border: 0;
+            border-radius: 4px;
+            padding: 8px 14px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            margin-top: 12px;
+        }
+        button:hover { background: #1a7f37; }
+        button.secondary { background: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; }
+        button.secondary:hover { background: #eaeef2; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        pre {
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
+            border-radius: 4px;
+            padding: 12px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-INITIATED { background: #ddf4ff; color: #0969da; }
+        .status-DOCUMENTS_PENDING { background: #fff8c5; color: #9a6700; }
+        .status-IN_REVIEW { background: #e6daff; color: #6e40c9; }
+        .status-APPROVED { background: #dafbe1; color: #1a7f37; }
+        .status-REJECTED { background: #ffebe9; color: #cf222e; }
+        .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .err { color: #cf222e; font-size: 13px; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <h1>KYC Applicant Portal</h1>
+    <p class="muted">Demo UI. Calls the unauthenticated <code>/api/cases</code> endpoints (full applicant-portal auth flow not wired yet).</p>
+
+    <div class="card" id="form-card">
+        <h2>Submit a new KYC case</h2>
+        <form id="create-form">
+            <div class="row">
+                <div>
+                    <label>First name</label>
+                    <input name="first_name" required />
+                </div>
+                <div>
+                    <label>Last name</label>
+                    <input name="last_name" required />
+                </div>
+            </div>
+            <label>Email</label>
+            <input type="email" name="email" required />
+            <label>Date of birth</label>
+            <input type="date" name="date_of_birth" required />
+            <div class="row">
+                <div>
+                    <label>Nationality (ISO 2)</label>
+                    <input name="nationality" maxlength="3" value="GB" required />
+                </div>
+                <div>
+                    <label>Country of residence (ISO 2)</label>
+                    <input name="country_of_residence" maxlength="3" value="GB" required />
+                </div>
+            </div>
+            <label>Fund ID</label>
+            <input name="fund_id" value="FUND-001" required />
+            <button type="submit">Create case</button>
+            <div class="err" id="create-err"></div>
+        </form>
+    </div>
+
+    <div class="card" id="case-card" style="display: none;">
+        <h2>
+            Case <span id="case-id-short"></span>
+            <span class="status" id="case-status"></span>
+        </h2>
+
+        <h2>Upload document</h2>
+        <form id="upload-form">
+            <label>Document type</label>
+            <select name="doc_type">
+                <option value="PASSPORT">Passport</option>
+                <option value="NATIONAL_ID">National ID</option>
+                <option value="DRIVING_LICENCE">Driving licence</option>
+                <option value="PROOF_OF_ADDRESS">Proof of address</option>
+                <option value="UTILITY_BILL">Utility bill</option>
+                <option value="BANK_STATEMENT">Bank statement</option>
+            </select>
+            <label>File name</label>
+            <input name="file_name" placeholder="passport.pdf" required />
+            <label>Storage reference</label>
+            <input name="storage_ref" placeholder="s3://bucket/key" required />
+            <button type="submit">Upload</button>
+            <div class="err" id="upload-err"></div>
+        </form>
+
+        <h2>Actions</h2>
+        <div class="actions">
+            <button type="button" class="secondary" id="refresh-btn">Refresh status</button>
+            <button type="button" class="secondary" id="audit-btn">Show audit trail</button>
+        </div>
+
+        <h2 id="audit-heading" style="display: none;">Audit trail</h2>
+        <pre id="audit-output" style="display: none;"></pre>
+    </div>
+
+    <script>
+    const API = "/api";
+    let currentCaseId = null;
+
+    function setStatusBadge(status) {
+        const el = document.getElementById("case-status");
+        el.textContent = status;
+        el.className = "status status-" + status;
+    }
+
+    async function refreshCase() {
+        if (!currentCaseId) return;
+        const r = await fetch(`${API}/cases/${currentCaseId}`);
+        if (!r.ok) return;
+        const c = await r.json();
+        setStatusBadge(c.status);
+    }
+
+    document.getElementById("create-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById("create-err");
+        errEl.textContent = "";
+        const fd = new FormData(e.target);
+        const body = {
+            case_type: "INDIVIDUAL",
+            country_code: fd.get("country_of_residence"),
+            fund_id: fd.get("fund_id"),
+            individual: {
+                first_name: fd.get("first_name"),
+                last_name: fd.get("last_name"),
+                email: fd.get("email"),
+                date_of_birth: fd.get("date_of_birth"),
+                nationality: fd.get("nationality"),
+                country_of_residence: fd.get("country_of_residence"),
+            },
+        };
+        const r = await fetch(`${API}/cases`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+            errEl.textContent = `Error ${r.status}: ${await r.text()}`;
+            return;
+        }
+        const c = await r.json();
+        currentCaseId = c.case_id;
+        document.getElementById("case-id-short").textContent = c.case_id.slice(0, 8) + "…";
+        setStatusBadge(c.status);
+        document.getElementById("case-card").style.display = "block";
+        document.getElementById("form-card").style.display = "none";
+    });
+
+    document.getElementById("upload-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById("upload-err");
+        errEl.textContent = "";
+        const fd = new FormData(e.target);
+        const body = {
+            doc_type: fd.get("doc_type"),
+            file_name: fd.get("file_name"),
+            storage_ref: fd.get("storage_ref"),
+        };
+        const r = await fetch(`${API}/cases/${currentCaseId}/documents`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+            errEl.textContent = `Error ${r.status}: ${await r.text()}`;
+            return;
+        }
+        e.target.reset();
+        await refreshCase();
+    });
+
+    document.getElementById("refresh-btn").addEventListener("click", refreshCase);
+
+    document.getElementById("audit-btn").addEventListener("click", async () => {
+        const r = await fetch(`${API}/cases/${currentCaseId}/audit`);
+        const events = await r.json();
+        document.getElementById("audit-heading").style.display = "block";
+        const out = document.getElementById("audit-output");
+        out.style.display = "block";
+        out.textContent = JSON.stringify(events, null, 2);
+    });
+    </script>
+</body>
+</html>
