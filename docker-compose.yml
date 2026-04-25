@@ -25,11 +25,15 @@ services:
       KYC_AUTH_ALGORITHM: HS256
       KYC_AUTH_ACCESS_TOKEN_TTL_MINUTES: "60"
       WORKERS: "2"
+      UPLOADS_DIR: /data/uploads
     ports:
       - "8000:8000"
+    volumes:
+      - uploads:/data/uploads
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
+  uploads:

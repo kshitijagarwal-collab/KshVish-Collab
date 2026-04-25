@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from src.core.domain.document import Document, DocumentStatus
+from src.core.domain.document import Document, DocumentStatus, DocumentType
 from src.core.domain.kyc_case import CaseStatus, KYCCase
 from src.infra.audit import AuditEvent, AuditEventType, AuditTrail
 from src.infra.db import get_session
@@ -14,8 +15,15 @@ from src.infra.repositories import (
     CaseRepository,
     DocumentNotFoundError,
     DocumentRepository,
+    IndividualApplicantRepository,
 )
+from src.infra.storage import store_upload
 
+from .extraction import (
+    ExtractedDocument,
+    extract_identity_fields,
+    extract_pdf_text,
+)
 from .schemas import (
     CreateDocumentRequest,
     DocumentResponse,
@@ -99,6 +107,151 @@ def upload_document(
 
     session.commit()
     return _doc_to_response(doc)
+
+
+class ExtractedFields(BaseModel):
+    full_name: Optional[str]
+    document_number: Optional[str]
+    date_of_birth: Optional[str]
+    expiry_date: Optional[str]
+
+
+class ValidationResult(BaseModel):
+    name_matches: Optional[bool]
+    dob_matches: Optional[bool]
+    expiry_in_future: Optional[bool]
+    all_passed: bool
+
+
+class UploadedDocumentResponse(BaseModel):
+    document: DocumentResponse
+    extracted: ExtractedFields
+    validation: ValidationResult
+
+
+def _validate_against_applicant(
+    extracted: ExtractedDocument,
+    case: KYCCase,
+    session: Session,
+) -> ValidationResult:
+    raw_applicant = case.metadata.get("applicant_id")
+    applicant = (
+        IndividualApplicantRepository(session).get(UUID(raw_applicant))
+        if raw_applicant
+        else None
+    )
+
+    name_matches: Optional[bool] = None
+    dob_matches: Optional[bool] = None
+    if applicant is not None:
+        if extracted.full_name is not None:
+            name_matches = extracted.full_name.lower() == applicant.full_name.lower()
+        if extracted.date_of_birth is not None:
+            dob_matches = extracted.date_of_birth == applicant.date_of_birth
+
+    expiry_in_future: Optional[bool] = None
+    if extracted.expiry_date is not None:
+        from datetime import date as _date
+
+        expiry_in_future = extracted.expiry_date > _date.today()
+
+    checks = [c for c in (name_matches, dob_matches, expiry_in_future) if c is not None]
+    return ValidationResult(
+        name_matches=name_matches,
+        dob_matches=dob_matches,
+        expiry_in_future=expiry_in_future,
+        all_passed=bool(checks) and all(checks),
+    )
+
+
+@router.post(
+    "/{case_id}/documents/upload",
+    status_code=status.HTTP_201_CREATED,
+    response_model=UploadedDocumentResponse,
+)
+async def upload_document_file(
+    case_id: UUID,
+    session: Annotated[Session, Depends(get_session)],
+    doc_type: Annotated[DocumentType, Form()],
+    file: Annotated[UploadFile, File()],
+) -> UploadedDocumentResponse:
+    case = _load_case_or_404(session, case_id)
+    applicant_id = _resolve_applicant_id(case)
+
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=422, detail="empty file")
+
+    is_pdf = (file.content_type or "").lower() == "application/pdf" or (
+        file.filename or ""
+    ).lower().endswith(".pdf")
+
+    extracted = ExtractedDocument(
+        full_name=None,
+        document_number=None,
+        date_of_birth=None,
+        expiry_date=None,
+        raw_text_length=0,
+    )
+    if is_pdf:
+        try:
+            text = extract_pdf_text(payload)
+            extracted = extract_identity_fields(text)
+        except Exception:
+            pass
+
+    doc = Document(
+        case_id=case_id,
+        applicant_id=applicant_id,
+        doc_type=doc_type,
+        file_name=file.filename or "upload",
+        storage_ref="",
+        expiry_date=extracted.expiry_date,
+        document_number=extracted.document_number,
+        mime_type=file.content_type or "application/octet-stream",
+    )
+    doc.storage_ref = store_upload(doc.id, file.filename or "upload", payload)
+    DocumentRepository(session).add(doc)
+
+    if case.status == CaseStatus.INITIATED:
+        case.transition(
+            CaseStatus.DOCUMENTS_PENDING, actor="api", reason="first document uploaded"
+        )
+        CaseRepository(session).update(case)
+
+    validation = _validate_against_applicant(extracted, case, session)
+
+    AuditTrail(session=session).record(
+        AuditEvent(
+            event_type=AuditEventType.DOCUMENT_UPLOADED,
+            case_id=case_id,
+            actor="api",
+            applicant_id=applicant_id,
+            payload={
+                "doc_type": doc_type.value,
+                "file_name": doc.file_name,
+                "extracted": extracted.to_dict(),
+                "validation": validation.model_dump(),
+            },
+        )
+    )
+
+    session.commit()
+
+    return UploadedDocumentResponse(
+        document=_doc_to_response(doc),
+        extracted=ExtractedFields(
+            full_name=extracted.full_name,
+            document_number=extracted.document_number,
+            date_of_birth=(
+                extracted.date_of_birth.isoformat() if extracted.date_of_birth else None
+            ),
+            expiry_date=(
+                extracted.expiry_date.isoformat() if extracted.expiry_date else None
+            ),
+        ),
+        validation=validation,
+    )
 
 
 @router.get("/{case_id}/documents", response_model=list[DocumentResponse])
