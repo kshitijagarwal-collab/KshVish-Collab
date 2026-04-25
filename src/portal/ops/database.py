@@ -3,17 +3,17 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 
-def _make_session_factory() -> sessionmaker[Session]:
+def _make_engine() -> Engine:
     url = os.environ.get("DATABASE_URL", "sqlite:///./kyc.db")
-    engine = create_engine(url)
-    return sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    return create_engine(url)
 
 
-_SessionLocal = _make_session_factory()
+engine: Engine = _make_engine()
+_SessionLocal: sessionmaker[Session] = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def get_session() -> Iterator[Session]:

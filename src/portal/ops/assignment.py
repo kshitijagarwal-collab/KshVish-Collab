@@ -10,8 +10,13 @@ from sqlalchemy.orm import Session
 from src.infra.repositories import CaseNotFoundError, CaseRepository
 
 from .database import get_session
+from .security import require_ops_role
 
-router = APIRouter(prefix="/ops/cases", tags=["ops"])
+router = APIRouter(
+    prefix="/ops/cases",
+    tags=["ops"],
+    dependencies=[Depends(require_ops_role)],
+)
 
 
 class AssignReviewerRequest(BaseModel):

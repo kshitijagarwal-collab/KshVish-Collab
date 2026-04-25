@@ -14,8 +14,13 @@ from src.core.domain.kyc_case import CaseStatus, RiskTier
 from src.infra.orm import KYCCaseORM
 
 from .database import get_session
+from .security import require_ops_role
 
-router = APIRouter(prefix="/ops/cases", tags=["ops"])
+router = APIRouter(
+    prefix="/ops/cases",
+    tags=["ops"],
+    dependencies=[Depends(require_ops_role)],
+)
 
 _CSV_COLUMNS = (
     "case_id",
