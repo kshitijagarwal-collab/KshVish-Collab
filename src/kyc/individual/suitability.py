@@ -12,9 +12,9 @@ class SuitabilityResult:
     investor_class: InvestorClass
     passed: bool
     failure_reason: Optional[str] = None
-    eligible_fund_types: list[str] = None
+    eligible_fund_types: Optional[list[str]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.eligible_fund_types is None:
             self.eligible_fund_types = []
 
