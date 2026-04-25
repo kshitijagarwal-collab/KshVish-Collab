@@ -18,6 +18,7 @@ from src.infra.orm import Base
 from src.infra.repositories import CaseRepository
 from src.portal.ops.database import get_session
 from src.portal.ops.reporting import router
+from src.portal.ops.security import require_ops_role
 
 
 @pytest.fixture
@@ -45,6 +46,7 @@ def app(engine: Engine) -> FastAPI:
             session.close()
 
     application.dependency_overrides[get_session] = _override_session
+    application.dependency_overrides[require_ops_role] = lambda: None
     return application
 
 
