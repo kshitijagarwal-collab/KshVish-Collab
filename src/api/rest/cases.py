@@ -37,6 +37,7 @@ def _case_to_response(case: KYCCase) -> CaseResponse:
         reviewer_id=case.reviewer_id,
         rejection_reason=case.rejection_reason,
         applicant_id=UUID(raw_applicant) if raw_applicant else None,
+        applicant_name=case.metadata.get("applicant_name"),
         created_at=case.created_at,
         updated_at=case.updated_at,
     )
@@ -96,6 +97,7 @@ def create_case(
         )
         IndividualApplicantRepository(session).add(applicant)
         applicant_id = applicant.id
+        applicant_name: str = applicant.full_name
     else:
         assert body.corporate is not None
         corp = body.corporate
@@ -122,8 +124,10 @@ def create_case(
         )
         CorporateApplicantRepository(session).add(corporate)
         applicant_id = corporate.id
+        applicant_name = corporate.legal_name
 
     case.metadata["applicant_id"] = str(applicant_id)
+    case.metadata["applicant_name"] = applicant_name
     CaseRepository(session).add(case)
 
     AuditTrail(session=session).record(

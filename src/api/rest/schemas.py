@@ -67,6 +67,7 @@ class CaseResponse(BaseModel):
     reviewer_id: Optional[str]
     rejection_reason: Optional[str]
     applicant_id: Optional[UUID]
+    applicant_name: Optional[str]
     created_at: datetime
     updated_at: datetime
 
