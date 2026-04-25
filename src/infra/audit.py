@@ -5,6 +5,8 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
+from sqlalchemy.orm import Session
+
 
 class AuditEventType(str, Enum):
     CASE_CREATED = "CASE_CREATED"
@@ -48,19 +50,27 @@ class AuditEvent:
 
 
 class AuditTrail:
-    def __init__(self) -> None:
+    def __init__(self, session: Optional[Session] = None) -> None:
         self._store: list[AuditEvent] = []
+        self._session = session
 
     def record(self, event: AuditEvent) -> None:
         self._store.append(event)
         self._persist(event)
 
     def get_case_history(self, case_id: UUID) -> list[AuditEvent]:
+        if self._session is not None:
+            from src.infra.repositories import AuditEventRepository
+
+            return AuditEventRepository(self._session).list_for_case(case_id)
         return [e for e in self._store if e.case_id == case_id]
 
     def _persist(self, event: AuditEvent) -> None:
-        # Integration point: write to append-only audit DB table or S3
-        pass
+        if self._session is None:
+            return
+        from src.infra.repositories import AuditEventRepository
+
+        AuditEventRepository(self._session).add(event)
 
 
 _audit_trail = AuditTrail()
