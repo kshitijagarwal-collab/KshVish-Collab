@@ -1,7 +1,11 @@
 from __future__ import annotations
+
+import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Protocol
 from uuid import UUID, uuid4
+
+import httpx
 
 
 UBO_THRESHOLD_PERCENT = 25.0
@@ -38,10 +42,93 @@ class UBOResolutionResult:
         return self.complete and len(self.unresolved_layers) == 0
 
 
+class OwnershipProvider(Protocol):
+    def fetch(self, entity_name: str, country: str) -> list[dict]: ...
+
+
+class StubOwnershipProvider:
+    def fetch(self, entity_name: str, country: str) -> list[dict]:
+        return []
+
+
+@dataclass
+class OpenCorporatesOwnershipProvider:
+    api_key: Optional[str] = None
+    base_url: str = "https://api.opencorporates.com/v0.4"
+    timeout: float = 10.0
+    client: Optional[httpx.Client] = None
+
+    def fetch(self, entity_name: str, country: str) -> list[dict]:
+        client = self.client or httpx.Client(timeout=self.timeout)
+        try:
+            params = {"q": entity_name, "jurisdiction_code": country.lower()}
+            if self.api_key:
+                params["api_token"] = self.api_key
+
+            companies_resp = client.get(f"{self.base_url}/companies/search", params=params)
+            companies_resp.raise_for_status()
+            company = _first_company(companies_resp.json())
+            if company is None:
+                return []
+
+            jurisdiction = company.get("jurisdiction_code", country.lower())
+            company_number = company.get("company_number")
+            if not company_number:
+                return []
+
+            stmt_params = {"api_token": self.api_key} if self.api_key else {}
+            stmts_resp = client.get(
+                f"{self.base_url}/companies/{jurisdiction}/{company_number}/statements",
+                params=stmt_params,
+            )
+            stmts_resp.raise_for_status()
+            return _parse_ownership_statements(stmts_resp.json())
+        finally:
+            if self.client is None:
+                client.close()
+
+
+def _first_company(body: dict) -> Optional[dict]:
+    companies = body.get("results", {}).get("companies", [])
+    if not companies:
+        return None
+    return companies[0].get("company")
+
+
+def _parse_ownership_statements(body: dict) -> list[dict]:
+    statements = body.get("results", {}).get("statements", [])
+    out: list[dict] = []
+    for wrapper in statements:
+        stmt = wrapper.get("statement", {})
+        if stmt.get("statement_type") != "beneficial_ownership":
+            continue
+        interested_party = stmt.get("interested_party", {})
+        is_individual = interested_party.get("entity_type") == "Person"
+        out.append({
+            "name": interested_party.get("name", ""),
+            "type": interested_party.get("entity_type", "UNKNOWN"),
+            "percent": float(stmt.get("percentage_of_shares", 0)),
+            "country": interested_party.get("country", "XX"),
+            "is_individual": is_individual,
+        })
+    return out
+
+
 def resolve_ubos(
     corporate_id: UUID,
     ownership_data: list[dict],
     depth: int = 0,
+    provider: OwnershipProvider | None = None,
+) -> UBOResolutionResult:
+    selected = provider or _get_provider()
+    return _resolve(corporate_id, ownership_data, depth, selected)
+
+
+def _resolve(
+    corporate_id: UUID,
+    ownership_data: list[dict],
+    depth: int,
+    provider: OwnershipProvider,
 ) -> UBOResolutionResult:
     result = UBOResolutionResult(corporate_id=corporate_id)
 
@@ -56,10 +143,9 @@ def resolve_ubos(
         if node.is_individual and node.ownership_percent >= UBO_THRESHOLD_PERCENT:
             result.add_ubo(node)
         elif not node.is_individual and node.ownership_percent >= UBO_THRESHOLD_PERCENT:
-            # Recurse into corporate owner
-            sub_data = _fetch_ownership_data(node.entity_name, node.country)
+            sub_data = provider.fetch(node.entity_name, node.country)
             if sub_data:
-                sub_result = resolve_ubos(node.id, sub_data, depth + 1)
+                sub_result = _resolve(node.id, sub_data, depth + 1, provider)
                 result.ubos.extend(sub_result.ubos)
                 result.ownership_tree.extend(sub_result.ownership_tree)
                 if sub_result.max_depth_reached:
@@ -86,5 +172,13 @@ def _parse_ownership_data(data: list[dict], parent_id: UUID) -> list[OwnershipNo
 
 
 def _fetch_ownership_data(entity_name: str, country: str) -> list[dict]:
-    # Integration point: company registry APIs, OpenCorporates, etc.
-    return []
+    return _get_provider().fetch(entity_name, country)
+
+
+def _get_provider() -> OwnershipProvider:
+    name = os.getenv("KYC_OWNERSHIP_PROVIDER", "stub").lower()
+    if name == "open_corporates":
+        return OpenCorporatesOwnershipProvider(
+            api_key=os.environ.get("KYC_OPEN_CORPORATES_API_KEY"),
+        )
+    return StubOwnershipProvider()
