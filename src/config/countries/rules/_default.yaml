@@ -1,0 +1,13 @@
+country_code: DEFAULT
+country_name: Default
+fatf_status: STANDARD
+required_identity_doc_types:
+  - PASSPORT
+  - NATIONAL_ID
+required_address_doc_types:
+  - PROOF_OF_ADDRESS
+enhanced_due_diligence: false
+rekyc_months: 24
+min_address_doc_age_months: 3
+ubo_threshold_override: null
+notes: "Fallback rules for jurisdictions without an explicit profile"

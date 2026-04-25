@@ -1,0 +1,13 @@
+country_code: KY
+country_name: Cayman Islands
+fatf_status: STANDARD
+required_identity_doc_types:
+  - PASSPORT
+required_address_doc_types:
+  - PROOF_OF_ADDRESS
+  - BANK_STATEMENT
+enhanced_due_diligence: false
+rekyc_months: 12
+min_address_doc_age_months: 3
+ubo_threshold_override: null
+notes: "CIMA-regulated funds require enhanced documentation; AML Regs 2020"
