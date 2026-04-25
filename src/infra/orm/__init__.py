@@ -1,3 +1,4 @@
+from .audit_event import AuditEventORM
 from .base import Base
 from .models import (
     CorporateApplicantORM,
@@ -7,6 +8,7 @@ from .models import (
 )
 
 __all__ = [
+    "AuditEventORM",
     "Base",
     "CorporateApplicantORM",
     "DocumentORM",
