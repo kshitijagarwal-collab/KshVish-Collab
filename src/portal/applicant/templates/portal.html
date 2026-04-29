@@ -326,12 +326,33 @@
         const fd = new FormData();
         fd.append("doc_type", document.getElementById("doc-type").value);
         fd.append("file", pendingFile);
-        const r = await fetch(`${API}/cases/${currentCaseId}/documents/upload`, {
-            method: "POST",
-            body: fd,
-        });
+
+        const originalLabel = uploadBtn.textContent;
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = "Uploading & extracting…";
+        const dropzoneOriginalText = dzText.innerHTML;
+        dzText.innerHTML = '<span class="muted">Reading document, may take 10–30s for multi-page scans…</span>';
+
+        let r;
+        try {
+            r = await fetch(`${API}/cases/${currentCaseId}/documents/upload`, {
+                method: "POST",
+                body: fd,
+            });
+        } catch (e) {
+            errEl.textContent = `Network error: ${e.message}. The file may be too large or the server is busy — try again.`;
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = originalLabel;
+            dzText.innerHTML = dropzoneOriginalText;
+            return;
+        }
+
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = originalLabel;
+
         if (!r.ok) {
             errEl.textContent = `Error ${r.status}: ${await r.text()}`;
+            dzText.innerHTML = dropzoneOriginalText;
             return;
         }
         const result = await r.json();
